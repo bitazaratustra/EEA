@@ -1,0 +1,49 @@
+---
+title: "Trabajo Práctico Nro.2"
+subtitle: "Enfoque Estadístico del Aprendizaje"
+author: "Baldaseroni,Esteban; Conde, M. Cecilia, Lopez, Juan Jose"
+date: "xx/11/2024"
+output:
+  html_document:
+    toc: true
+    code_folding: show
+    toc_float: true
+    df_print: paged
+    theme: flatly
+    code_download: true
+  pdf_document:
+    toc: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r Configuracion General}
+require("knitr")
+knitr::opts_chunk$set(echo = TRUE)
+# indica desde dónde instalar paquetes
+options(repos = c(CRAN = "http://cran.rstudio.com")) 
+
+```
+
+```{r Configuracion General2, message=FALSE, warning=FALSE}
+# Seteo de directorio de trabajo
+setwd("C:/Users/mconde/Documents/EEA-Tps/EEA-TPs")
+
+```
+
+```{r Librerias, message=FALSE, warning=FALSE}
+#librerías
+library(tidyverse)
+library(tidymodels)
+library(dplyr)
+library(kableExtra)
+library(readxl)
+library(stats)
+library(BSDA)
+library(ggplot2)
+library(GGally)
+library(robustbase)
+library(knitr)
+
+```
