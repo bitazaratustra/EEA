@@ -45,12 +45,160 @@ library(GGally)
 library(robustbase)
 library(knitr)
 library(lars) #especifica de lars
+library(caret) # ver para qu esirve
+
 
 ```
 
 ```{r Lectura de datos}
 #Leer datos
-df <-read.csv("anage.csv")
+df<-read.csv("Agrofood_co2_emission.csv")
 view(df)
 
 ```
+
+```{r Variables cuantitativas}
+# Listo variables cuantitativas, para poder analizarlas y graficarlas
+data <- df %>% 
+  select(where(is.numeric))
+head(data)
+```
+
+
+
+```{r}
+modelo<-lm(total_emission ~ Savanna.fires + Forest.fires + Rice.Cultivation,data=df )
+summary(modelo)
+```
+```{r}
+# Gráfico de barras para visualizar el salario promedio
+ggplot(df, aes(x = Area, y = total_emission, fill = Area)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Salario Promedio por Ocupación y Sexo", 
+       x = "Ocupación", 
+       y = "Salario Promedio", 
+       fill = "Sexo") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```
+```
+```
+
+```{r}
+# Separar las variables predictoras y el objetivo
+X <- as.matrix(data[, -which(names(data) == "total_emission")])
+y <- data$total_emission
+
+# Dividir los datos en entrenamiento y prueba (70% entrenamiento, 30% prueba)
+set.seed(42)  # Para reproducibilidad
+trainIndex <- createDataPartition(y, p = 0.7, list = FALSE)
+X_train <- X[trainIndex, ]
+y_train <- y[trainIndex]
+X_test <- X[-trainIndex, ]
+y_test <- y[-trainIndex]
+
+# Combinamos X_train e y_train en un solo data frame temporal para manejar valores faltantes en ambas partes
+train_data <- data.frame(y_train, X_train)
+
+# Eliminar filas con NA en el conjunto de entrenamiento
+train_data <- na.omit(train_data)
+
+# Separar nuevamente en X_train e y_train después de eliminar NA
+y_train <- train_data$y_train
+X_train <- as.matrix(train_data[, -1])  # Eliminamos la columna de y_train
+
+# Ahora ajustamos el modelo LARS sin valores faltantes
+modelo_lars <- lars(X_train, y_train, type = "lasso") # "lasso" selecciona el tipo de regularización
+
+# Realizar predicciones en el conjunto de prueba
+y_pred <- predict(modelo_lars, X_test, type = "fit", s = modelo_lars$df)$fit
+
+# Evaluación del modelo
+mse <- mean((y_test - y_pred)^2)
+cat("Mean Squared Error (MSE):", mse, "\n")
+
+# Coeficientes de las variables seleccionadas
+print(coef(modelo_lars))
+
+```
+
+```{r}
+summary(modelo_lars)
+```
+
+Este resumen de tu modelo LARS/LASSO muestra una serie de métricas clave para cada etapa de ajuste del modelo, representando cómo se va construyendo el modelo a medida que se agregan variables. Aquí tienes una explicación detallada de cada columna:
+
+Columnas en el Resumen:
+Df (Degrees of Freedom): Indica el número de variables o parámetros en el modelo en esa etapa. A medida que avanzas en las etapas, el modelo incluye más variables.
+Rss (Residual Sum of Squares): Es la suma de los residuos al cuadrado. A medida que se agregan variables, este valor generalmente disminuye, ya que el modelo ajusta mejor los datos. Sin embargo, si comienza a estabilizarse o disminuir muy lentamente, puede ser una señal de que las variables adicionales están contribuyendo marginalmente.
+Cp (Mallow's Cp Statistic): Es una métrica utilizada para evaluar la bondad de ajuste y la complejidad del modelo. Un valor de Cp cercano al número de variables en el modelo indica un buen equilibrio entre ajuste y parsimonia (evitar sobreajuste). Cuando el valor de Cp es bajo, es una señal de que el modelo es adecuado; cuando es alto, puede sugerir que el modelo es demasiado complejo o sobreajustado.
+Observaciones:
+Al inicio, el Rss disminuye rápidamente a medida que se agregan variables, lo cual es esperado en los primeros pasos de ajuste.
+En etapas avanzadas, el Cp se vuelve negativo, lo cual puede ser un indicio de sobreajuste, especialmente cuando todos los residuos han sido explicados completamente y el Rss es prácticamente cero (0.0000e+00). Esto indica que el modelo ha llegado a un punto en el que ha ajustado perfectamente los datos de entrenamiento, lo cual puede no ser deseable para datos nuevos o de prueba.
+Las etapas finales con Cp negativos son puntos donde el modelo está posiblemente sobreajustado. Generalmente, elegir una etapa anterior a estas, donde el Cp se estabiliza o se acerca al número de variables, podría representar un buen modelo con buen ajuste sin sobreajuste.
+Selección de un Modelo Óptimo
+Para seleccionar el modelo óptimo, podrías considerar la etapa en la que el valor de Cp es bajo y cercano al número de variables agregadas en esa etapa. Esto te ofrece un buen compromiso entre ajuste y simplicidad.
+
+Si necesitas identificar las variables seleccionadas y sus coeficientes en esa etapa específica, puedes usar el índice de esa etapa para extraer los coeficientes correspondientes.
+
+Sí, basándote en el resumen, la etapa 27 parece una buena elección para el modelo óptimo. En esta etapa, el Residual Sum of Squares (Rss) es bastante bajo y el Cp se encuentra en un rango aceptable (aún positivo y cercano a cero). Además, en esta etapa se han agregado 24 variables, lo que sugiere que el modelo es lo suficientemente complejo para capturar la variabilidad de los datos sin llegar al sobreajuste que se observa en las etapas posteriores (donde el Cp se vuelve negativo).
+
+Extraer los Coeficientes en la Etapa 27
+Para obtener los coeficientes correspondientes a la etapa 27, puedes hacer lo siguiente:
+
+```{r}
+# Extraer los coeficientes en la etapa 27
+coef_etapa_27 <- coef(modelo_lars)[27, ]
+
+# Filtrar solo los coeficientes diferentes de cero y asociarlos con los nombres de variables
+coef_no_cero_etapa_27 <- coef_etapa_27[coef_etapa_27 != 0]
+variable_no_cero_etapa_27 <- variable_names[coef_etapa_27 != 0]
+
+# Crear un data frame con los nombres de las variables y sus coeficientes en la etapa 27
+coef_data_etapa_27 <- data.frame(Variable = variable_no_cero_etapa_27, Coeficiente = coef_no_cero_etapa_27)
+
+# Ordenar los coeficientes en orden descendente por valor absoluto
+coef_data_etapa_27 <- coef_data_etapa_27[order(abs(coef_data_etapa_27$Coeficiente), decreasing = TRUE), ]
+
+# Mostrar los coeficientes ordenados con sus variables asociadas en la etapa 27
+print(coef_data_etapa_27)
+
+```
+El coef_data_etapa_27 te dará un data frame con las variables seleccionadas en la etapa 27 y sus respectivos coeficientes, ordenados en función de su influencia. Este conjunto de variables y coeficientes es tu modelo final, que debería ofrecer un buen equilibrio entre ajuste y simplicidad.
+
+```{r}
+# Realizar validación cruzada
+cv_resultado <- cv.lars(X_train, y_train, K = 10, type = "lasso")
+
+# Graficar el error de validación para cada etapa
+#plot(cv_resultado, main = "Error de Validación Cruzada en Diferentes Etapas")
+
+# Identificar la etapa óptima según la validación cruzada
+mejor_etapa_cv <- which.min(cv_resultado$cv)
+cat("La mejor etapa según validación cruzada es:", mejor_etapa_cv, "\n")
+
+```
+```{r}
+# Calcular R² ajustado para cada etapa
+R2_ajustado_etapas <- sapply(1:ncol(coef(modelo_lars)), function(s) {
+  y_pred <- predict(modelo_lars, X_train, s = s, type = "fit")$fit
+  SSE <- sum((y_train - y_pred)^2)
+  SST <- sum((y_train - mean(y_train))^2)
+  R2 <- 1 - (SSE / SST)
+  R2_ajustado <- 1 - ((1 - R2) * (nrow(X_train) - 1) / (nrow(X_train) - s - 1))
+  return(R2_ajustado)
+})
+
+# Seleccionar la etapa con el R² ajustado más alto
+mejor_etapa_R2 <- which.max(R2_ajustado_etapas)
+cat("La mejor etapa según R² ajustado es:", mejor_etapa_R2, "\n")
+
+```
+```{r}
+# Graficar trayectorias de coeficientes
+plot(modelo_lars, breaks = FALSE)
+title("Trayectoria de Coeficientes en LARS/LASSO")
+
+```
+
