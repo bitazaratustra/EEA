@@ -64,10 +64,45 @@ data <- df %>%
 head(data)
 ```
 
+```{r}
+```
 
 
 ```{r}
-modelo<-lm(total_emission ~ Savanna.fires + Forest.fires + Rice.Cultivation,data=df )
+names(df)
+
+```
+
+```{r}
+unique(df$Area)
+```
+
+```{r}
+# Crear un vector con los países de Sudamérica
+paises_sudamerica <- c("Argentina", "Bolivia", "Brazil", "Chile", "Colombia", 
+                       "Ecuador", "Guyana", "Paraguay", "Peru", "Suriname", 
+                       "Uruguay", "Venezuela")
+
+# Ver la lista de países
+print(paises_sudamerica)
+```
+
+```{r}
+# Filtrar el data frame por los países de Sudamérica
+df_sudamerica <- df %>% 
+  filter(Area %in% paises_sudamerica)
+head(df_sudamerica)
+
+```
+```{r}
+dim(df_sudamerica)
+```
+```{r}
+
+```
+
+```{r}
+modelo<-lm(total_emission ~ Savanna.fires + Forest.fires + Rice.Cultivation + Area, data=df_sudamerica )
 summary(modelo)
 ```
 ```{r}
@@ -81,39 +116,54 @@ ggplot(df, aes(x = Area, y = total_emission, fill = Area)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+```{r}
+data <- df_sudamerica %>% 
+  select(where(is.numeric))%>% 
+  select(-Fires.in.organic.soils)
+head(data)
 ```
+
+```{r}
+data = na.omit(data)
+sum(is.na(data))
 ```
-```
+
+
+
 
 ```{r}
 # Separar las variables predictoras y el objetivo
 X <- as.matrix(data[, -which(names(data) == "total_emission")])
 y <- data$total_emission
+```
 
+```{r}
+X_scaled= scale(X, center = TRUE, scale = TRUE)
+sum(is.na(X_scaled))
+```
+```{r}
 # Dividir los datos en entrenamiento y prueba (70% entrenamiento, 30% prueba)
 set.seed(42)  # Para reproducibilidad
 trainIndex <- createDataPartition(y, p = 0.7, list = FALSE)
-X_train <- X[trainIndex, ]
+X_train <- X_scaled[trainIndex, ]
 y_train <- y[trainIndex]
-X_test <- X[-trainIndex, ]
+X_test <- X_scaled[-trainIndex, ]
 y_test <- y[-trainIndex]
+```
 
-# Combinamos X_train e y_train en un solo data frame temporal para manejar valores faltantes en ambas partes
-train_data <- data.frame(y_train, X_train)
-
-# Eliminar filas con NA en el conjunto de entrenamiento
-train_data <- na.omit(train_data)
-
-# Separar nuevamente en X_train e y_train después de eliminar NA
-y_train <- train_data$y_train
-X_train <- as.matrix(train_data[, -1])  # Eliminamos la columna de y_train
+```{r}
 
 # Ahora ajustamos el modelo LARS sin valores faltantes
 modelo_lars <- lars(X_train, y_train, type = "lasso") # "lasso" selecciona el tipo de regularización
 
 # Realizar predicciones en el conjunto de prueba
-y_pred <- predict(modelo_lars, X_test, type = "fit", s = modelo_lars$df)$fit
+y_pred <- predict(modelo_lars, X_test, type = "fit", s = modelo_lars$df_sudamerica)$fit
+#y_pred <- predict(modelo_lars, X_test) 
 
+```
+
+```{r}
 # Evaluación del modelo
 mse <- mean((y_test - y_pred)^2)
 cat("Mean Squared Error (MSE):", mse, "\n")
@@ -121,6 +171,16 @@ cat("Mean Squared Error (MSE):", mse, "\n")
 # Coeficientes de las variables seleccionadas
 print(coef(modelo_lars))
 
+```
+
+```{r}
+mse <- mean((y_test - y_pred)^2)
+r_squared <- 1 - sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2)
+```
+
+```{r}
+plot(y_test, y_pred)
+abline(0, 1, col = "red") # Línea diagonal para referencia
 ```
 
 ```{r}
