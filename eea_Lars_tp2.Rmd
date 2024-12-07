@@ -2,7 +2,7 @@
 title: "Trabajo Práctico Nro.2"
 subtitle: "Enfoque Estadístico del Aprendizaje"
 author: "Baldaseroni,Esteban; Conde, M. Cecilia, Lopez, Juan Jose"
-date: "xx/11/2024"
+date: "10/12/2024"
 output:
   html_document:
     toc: true
@@ -17,6 +17,8 @@ editor_options:
   markdown: 
     wrap: 72
 ---
+
+# 1. Configuraciones Generales de R
 
 ```{r Configuracion General}
 require("knitr")
@@ -41,6 +43,7 @@ library(readxl)
 library(stats)
 library(BSDA)
 library(ggplot2)
+library(reshape2) #correlacion calor
 library(GGally)
 library(robustbase)
 library(knitr)
@@ -50,6 +53,30 @@ library(caret) # ver para qu esirve
 
 ```
 
+# 2. Lectura de Datos y armado de dataset de análisis.
+
+El objetivo del presente documento es armar un modelo de estimacion de
+total de gases efecto inveranadero para los paises de sudamerica. Se
+utilizar la tecnica LARS.
+
+Se utilizará un dataset disponible públicamente de Kaggle “[Agri-food
+CO2 emission dataset -
+Forecast](https://www.kaggle.com/datasets/alessandrolobello/agri-food-co2-emission-dataset-forecasting-ml)”
+que contiene múltiples variables relevantes para el análisis
+provenientes de la fusión de datos de Food and Agriculture Organization
+(FAO) y el Intergovernmental Panel of Climate Change (IPCC), desde el
+año 1990 hasta el 2020, para diferentes países del mundo.
+
+El dataset se encuentra limpio y preprocesado, por lo que se filtrarán
+los países relevantes para nuestro estudio. A continuación se procederá
+con un breve análisis exploratorio y además, se normalizarán los datos
+para asegurar que todas las variables estén en la misma escala.
+
+**Estructura del dataset**: El dataset consta de 6965 filas y 31
+columnas. Incluye diversas variables que permiten realizar análisis
+detallados sobre las emisiones de CO2 y su relación con el sector
+agroalimentario. Algunas de las variables incluyen
+
 ```{r Lectura de datos}
 #Leer datos
 df<-read.csv("Agrofood_co2_emission.csv")
@@ -57,27 +84,7 @@ view(df)
 
 ```
 
-```{r Variables cuantitativas}
-# Listo variables cuantitativas, para poder analizarlas y graficarlas
-data <- df %>% 
-  select(where(is.numeric))
-head(data)
-```
-
-```{r}
-```
-
-
-```{r}
-names(df)
-
-```
-
-```{r}
-unique(df$Area)
-```
-
-```{r}
+```{r Paises de sudamerica}
 # Crear un vector con los países de Sudamérica
 paises_sudamerica <- c("Argentina", "Bolivia", "Brazil", "Chile", "Colombia", 
                        "Ecuador", "Guyana", "Paraguay", "Peru", "Suriname", 
@@ -87,40 +94,84 @@ paises_sudamerica <- c("Argentina", "Bolivia", "Brazil", "Chile", "Colombia",
 print(paises_sudamerica)
 ```
 
-```{r}
+```{r Dataset de analisis}
 # Filtrar el data frame por los países de Sudamérica
 df_sudamerica <- df %>% 
   filter(Area %in% paises_sudamerica)
 head(df_sudamerica)
+# Guardar el dataframe filtrado en un archivo CSV
+write.csv(df_sudamerica, "df_sudamerica.csv", row.names = FALSE)
 
 ```
+
+# 3. EDA
+
 ```{r}
+# Resumen inicial de los datos
+cat("Resumen de la estructura del dataset:\n")
+str(df_sudamerica)
+
+cat("\nResumen estadístico de las variables numéricas:\n")
+summary(df_sudamerica)
+
+cat("\nDimensiones del dataset (filas y columnas):\n")
 dim(df_sudamerica)
 ```
-```{r}
 
+```{r}
+# Verificar datos faltantes
+cat("\nConteo de valores faltantes por columna:\n")
+missing_data <- sapply(df, function(x) sum(is.na(x)))
+print(missing_data)
 ```
 
 ```{r}
-modelo<-lm(total_emission ~ Savanna.fires + Forest.fires + Rice.Cultivation + Area, data=df_sudamerica )
-summary(modelo)
-```
-```{r}
-# Gráfico de barras para visualizar el salario promedio
-ggplot(df, aes(x = Area, y = total_emission, fill = Area)) +
+# Gráfico de barras para visualizar el total de emision
+ggplot(df_sudamerica, aes(x = Area, y = total_emission, fill = Area)) +
   geom_bar(stat = "identity", position = "dodge") +
-  labs(title = "Salario Promedio por Ocupación y Sexo", 
-       x = "Ocupación", 
-       y = "Salario Promedio", 
-       fill = "Sexo") +
+  labs(title = "Emision de Gases Efecto invernadero", 
+       x = "Paises", 
+       y = "Emision Total") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ```{r}
+# Análisis de variables numéricas
+num_vars <- df_sudamerica %>% select(where(is.numeric))
+cat("\nCorrelación entre variables numéricas:\n")
+cor_matrix <- cor(num_vars, use = "complete.obs")
+print(cor_matrix)
+```
+
+```{r}
+# Convertir la matriz de correlación a formato largo
+cor_data <- melt(cor_matrix)
+# Crear el mapa de calor
+ggplot(cor_data, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab",
+                       name = "Correlación") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(title = "Mapa de Calor de Correlación",
+       x = "", y = "")
+```
+
+# 4. Modelo Lineal
+
+Un modelo lineal no se le niega a nadie.
+
+```{r modelo lineal multiple}
+modelo<-lm(total_emission ~ Savanna.fires + Forest.fires + Rice.Cultivation + Area, data=df_sudamerica )
+summary(modelo)
+```
+
+```{r}
 data <- df_sudamerica %>% 
   select(where(is.numeric))%>% 
-  select(-Fires.in.organic.soils)
+  select(-Fires.in.organic.soils) #La saqeu porque son todos ceros
 head(data)
 ```
 
@@ -129,19 +180,17 @@ data = na.omit(data)
 sum(is.na(data))
 ```
 
-
-
-
 ```{r}
 # Separar las variables predictoras y el objetivo
 X <- as.matrix(data[, -which(names(data) == "total_emission")])
 y <- data$total_emission
 ```
 
-```{r}
+```{r Escalo la variable predictoras}
 X_scaled= scale(X, center = TRUE, scale = TRUE)
 sum(is.na(X_scaled))
 ```
+
 ```{r}
 # Dividir los datos en entrenamiento y prueba (70% entrenamiento, 30% prueba)
 set.seed(42)  # Para reproducibilidad
@@ -153,14 +202,38 @@ y_test <- y[-trainIndex]
 ```
 
 ```{r}
+# Usando cv.lars sin el argumento index
+library(lars)
+
+cv.lars(X_train, y_train, K = 10, trace = FALSE, plot.it = TRUE, se = TRUE, type = "lar", mode = "step")
+
+```
+
+```{}
+```
+
+```{r Modelo Lars}
 
 # Ahora ajustamos el modelo LARS sin valores faltantes
-modelo_lars <- lars(X_train, y_train, type = "lasso") # "lasso" selecciona el tipo de regularización
+modelo_lars <- lars(X_train, y_train, type = "lar") # "lar" selecciona el tipo de regularización
+summary(modelo_lars)
+
+```
+
+```{r}
+plot.lars
+
+```
+
+```{r}
 
 # Realizar predicciones en el conjunto de prueba
-y_pred <- predict(modelo_lars, X_test, type = "fit", s = modelo_lars$df_sudamerica)$fit
-#y_pred <- predict(modelo_lars, X_test) 
+y_pred <- predict(modelo_lars, X_test, type = c("fit","coefficientes"), mode = "step")
+y_pred <- predict(modelo_lars, X_test) 
+```
 
+```{r}
+summary(modelo_lars, sigma2 = NULL)
 ```
 
 ```{r}
@@ -170,6 +243,8 @@ cat("Mean Squared Error (MSE):", mse, "\n")
 
 # Coeficientes de las variables seleccionadas
 print(coef(modelo_lars))
+
+
 
 ```
 
@@ -187,25 +262,55 @@ abline(0, 1, col = "red") # Línea diagonal para referencia
 summary(modelo_lars)
 ```
 
-Este resumen de tu modelo LARS/LASSO muestra una serie de métricas clave para cada etapa de ajuste del modelo, representando cómo se va construyendo el modelo a medida que se agregan variables. Aquí tienes una explicación detallada de cada columna:
+Este resumen de tu modelo LARS/LASSO muestra una serie de métricas clave
+para cada etapa de ajuste del modelo, representando cómo se va
+construyendo el modelo a medida que se agregan variables. Aquí tienes
+una explicación detallada de cada columna:
 
-Columnas en el Resumen:
-Df (Degrees of Freedom): Indica el número de variables o parámetros en el modelo en esa etapa. A medida que avanzas en las etapas, el modelo incluye más variables.
-Rss (Residual Sum of Squares): Es la suma de los residuos al cuadrado. A medida que se agregan variables, este valor generalmente disminuye, ya que el modelo ajusta mejor los datos. Sin embargo, si comienza a estabilizarse o disminuir muy lentamente, puede ser una señal de que las variables adicionales están contribuyendo marginalmente.
-Cp (Mallow's Cp Statistic): Es una métrica utilizada para evaluar la bondad de ajuste y la complejidad del modelo. Un valor de Cp cercano al número de variables en el modelo indica un buen equilibrio entre ajuste y parsimonia (evitar sobreajuste). Cuando el valor de Cp es bajo, es una señal de que el modelo es adecuado; cuando es alto, puede sugerir que el modelo es demasiado complejo o sobreajustado.
-Observaciones:
-Al inicio, el Rss disminuye rápidamente a medida que se agregan variables, lo cual es esperado en los primeros pasos de ajuste.
-En etapas avanzadas, el Cp se vuelve negativo, lo cual puede ser un indicio de sobreajuste, especialmente cuando todos los residuos han sido explicados completamente y el Rss es prácticamente cero (0.0000e+00). Esto indica que el modelo ha llegado a un punto en el que ha ajustado perfectamente los datos de entrenamiento, lo cual puede no ser deseable para datos nuevos o de prueba.
-Las etapas finales con Cp negativos son puntos donde el modelo está posiblemente sobreajustado. Generalmente, elegir una etapa anterior a estas, donde el Cp se estabiliza o se acerca al número de variables, podría representar un buen modelo con buen ajuste sin sobreajuste.
-Selección de un Modelo Óptimo
-Para seleccionar el modelo óptimo, podrías considerar la etapa en la que el valor de Cp es bajo y cercano al número de variables agregadas en esa etapa. Esto te ofrece un buen compromiso entre ajuste y simplicidad.
+Columnas en el Resumen: Df (Degrees of Freedom): Indica el número de
+variables o parámetros en el modelo en esa etapa. A medida que avanzas
+en las etapas, el modelo incluye más variables. Rss (Residual Sum of
+Squares): Es la suma de los residuos al cuadrado. A medida que se
+agregan variables, este valor generalmente disminuye, ya que el modelo
+ajusta mejor los datos. Sin embargo, si comienza a estabilizarse o
+disminuir muy lentamente, puede ser una señal de que las variables
+adicionales están contribuyendo marginalmente. Cp (Mallow's Cp
+Statistic): Es una métrica utilizada para evaluar la bondad de ajuste y
+la complejidad del modelo. Un valor de Cp cercano al número de variables
+en el modelo indica un buen equilibrio entre ajuste y parsimonia (evitar
+sobreajuste). Cuando el valor de Cp es bajo, es una señal de que el
+modelo es adecuado; cuando es alto, puede sugerir que el modelo es
+demasiado complejo o sobreajustado. Observaciones: Al inicio, el Rss
+disminuye rápidamente a medida que se agregan variables, lo cual es
+esperado en los primeros pasos de ajuste. En etapas avanzadas, el Cp se
+vuelve negativo, lo cual puede ser un indicio de sobreajuste,
+especialmente cuando todos los residuos han sido explicados
+completamente y el Rss es prácticamente cero (0.0000e+00). Esto indica
+que el modelo ha llegado a un punto en el que ha ajustado perfectamente
+los datos de entrenamiento, lo cual puede no ser deseable para datos
+nuevos o de prueba. Las etapas finales con Cp negativos son puntos donde
+el modelo está posiblemente sobreajustado. Generalmente, elegir una
+etapa anterior a estas, donde el Cp se estabiliza o se acerca al número
+de variables, podría representar un buen modelo con buen ajuste sin
+sobreajuste. Selección de un Modelo Óptimo Para seleccionar el modelo
+óptimo, podrías considerar la etapa en la que el valor de Cp es bajo y
+cercano al número de variables agregadas en esa etapa. Esto te ofrece un
+buen compromiso entre ajuste y simplicidad.
 
-Si necesitas identificar las variables seleccionadas y sus coeficientes en esa etapa específica, puedes usar el índice de esa etapa para extraer los coeficientes correspondientes.
+Si necesitas identificar las variables seleccionadas y sus coeficientes
+en esa etapa específica, puedes usar el índice de esa etapa para extraer
+los coeficientes correspondientes.
 
-Sí, basándote en el resumen, la etapa 27 parece una buena elección para el modelo óptimo. En esta etapa, el Residual Sum of Squares (Rss) es bastante bajo y el Cp se encuentra en un rango aceptable (aún positivo y cercano a cero). Además, en esta etapa se han agregado 24 variables, lo que sugiere que el modelo es lo suficientemente complejo para capturar la variabilidad de los datos sin llegar al sobreajuste que se observa en las etapas posteriores (donde el Cp se vuelve negativo).
+Sí, basándote en el resumen, la etapa 27 parece una buena elección para
+el modelo óptimo. En esta etapa, el Residual Sum of Squares (Rss) es
+bastante bajo y el Cp se encuentra en un rango aceptable (aún positivo y
+cercano a cero). Además, en esta etapa se han agregado 24 variables, lo
+que sugiere que el modelo es lo suficientemente complejo para capturar
+la variabilidad de los datos sin llegar al sobreajuste que se observa en
+las etapas posteriores (donde el Cp se vuelve negativo).
 
-Extraer los Coeficientes en la Etapa 27
-Para obtener los coeficientes correspondientes a la etapa 27, puedes hacer lo siguiente:
+Extraer los Coeficientes en la Etapa 27 Para obtener los coeficientes
+correspondientes a la etapa 27, puedes hacer lo siguiente:
 
 ```{r}
 # Extraer los coeficientes en la etapa 27
@@ -225,7 +330,12 @@ coef_data_etapa_27 <- coef_data_etapa_27[order(abs(coef_data_etapa_27$Coeficient
 print(coef_data_etapa_27)
 
 ```
-El coef_data_etapa_27 te dará un data frame con las variables seleccionadas en la etapa 27 y sus respectivos coeficientes, ordenados en función de su influencia. Este conjunto de variables y coeficientes es tu modelo final, que debería ofrecer un buen equilibrio entre ajuste y simplicidad.
+
+El coef_data_etapa_27 te dará un data frame con las variables
+seleccionadas en la etapa 27 y sus respectivos coeficientes, ordenados
+en función de su influencia. Este conjunto de variables y coeficientes
+es tu modelo final, que debería ofrecer un buen equilibrio entre ajuste
+y simplicidad.
 
 ```{r}
 # Realizar validación cruzada
@@ -239,6 +349,7 @@ mejor_etapa_cv <- which.min(cv_resultado$cv)
 cat("La mejor etapa según validación cruzada es:", mejor_etapa_cv, "\n")
 
 ```
+
 ```{r}
 # Calcular R² ajustado para cada etapa
 R2_ajustado_etapas <- sapply(1:ncol(coef(modelo_lars)), function(s) {
@@ -255,10 +366,10 @@ mejor_etapa_R2 <- which.max(R2_ajustado_etapas)
 cat("La mejor etapa según R² ajustado es:", mejor_etapa_R2, "\n")
 
 ```
+
 ```{r}
 # Graficar trayectorias de coeficientes
 plot(modelo_lars, breaks = FALSE)
 title("Trayectoria de Coeficientes en LARS/LASSO")
 
 ```
-
