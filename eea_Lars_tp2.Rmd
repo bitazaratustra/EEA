@@ -49,15 +49,16 @@ library(robustbase)
 library(knitr)
 library(lars) #especifica de lars
 library(caret) # ver para qu esirve
+library(glmnet) #modelo lasso
 
 
 ```
 
 # 2. Lectura de Datos y armado de dataset de análisis.
 
-El objetivo del presente documento es armar un modelo de estimacion de
-total de gases efecto inveranadero para los paises de sudamerica. Se
-utilizar la tecnica LARS.
+El objetivo del presente documento es armar un modelo de estimación de
+total de gases efecto invernadero para los países de sudamérica. Se
+utilizar la técnica LARS.
 
 Se utilizará un dataset disponible públicamente de Kaggle “[Agri-food
 CO2 emission dataset -
@@ -72,7 +73,7 @@ los países relevantes para nuestro estudio. A continuación se procederá
 con un breve análisis exploratorio y además, se normalizarán los datos
 para asegurar que todas las variables estén en la misma escala.
 
-**Estructura del dataset**: El dataset consta de 6965 filas y 31
+**Estructura del dataset orginal**: El dataset consta de 6965 filas y 31
 columnas. Incluye diversas variables que permiten realizar análisis
 detallados sobre las emisiones de CO2 y su relación con el sector
 agroalimentario. Algunas de las variables incluyen
@@ -100,11 +101,14 @@ df_sudamerica <- df %>%
   filter(Area %in% paises_sudamerica)
 head(df_sudamerica)
 # Guardar el dataframe filtrado en un archivo CSV
-write.csv(df_sudamerica, "df_sudamerica.csv", row.names = FALSE)
+#write.csv(df_sudamerica, "df_sudamerica.csv", row.names = FALSE)
 
 ```
 
 # 3. EDA
+
+Estructura de dataset del estudio: Se incluye los paises de sudamerica
+reducionedo la cantidad de registros a 310.
 
 ```{r}
 # Resumen inicial de los datos
@@ -122,7 +126,7 @@ dim(df_sudamerica)
 # Verificar datos faltantes
 cat("\nConteo de valores faltantes por columna:\n")
 missing_data <- sapply(df, function(x) sum(is.na(x)))
-print(missing_data)
+head(missing_data)
 ```
 
 ```{r}
@@ -141,7 +145,7 @@ ggplot(df_sudamerica, aes(x = Area, y = total_emission, fill = Area)) +
 num_vars <- df_sudamerica %>% select(where(is.numeric))
 cat("\nCorrelación entre variables numéricas:\n")
 cor_matrix <- cor(num_vars, use = "complete.obs")
-print(cor_matrix)
+
 ```
 
 ```{r}
@@ -154,62 +158,334 @@ ggplot(cor_data, aes(x = Var1, y = Var2, fill = value)) +
                        midpoint = 0, limit = c(-1, 1), space = "Lab",
                        name = "Correlación") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 8), # Ajustar tamaño de texto
+    axis.text.y = element_text(size = 5), # Ajustar tamaño de etiquetas en Y
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10) # Controlar los márgenes
+  )
   labs(title = "Mapa de Calor de Correlación",
        x = "", y = "")
 ```
 
-# 4. Modelo Lineal
+# Modelo Lineal
 
-Un modelo lineal no se le niega a nadie.
-
-```{r modelo lineal multiple}
-modelo<-lm(total_emission ~ Savanna.fires + Forest.fires + Rice.Cultivation + Area, data=df_sudamerica )
-summary(modelo)
-```
+Vamos a probar un modelo lineal que incluya todas las variables (excepto
+Fires.in.organic.soils y Area) y obtener las estimaciones de los
+parámetros junto a su p-valor e intervalo de confianza.
 
 ```{r}
 data <- df_sudamerica %>% 
   select(where(is.numeric))%>% 
-  select(-Fires.in.organic.soils) #La saqeu porque son todos ceros
+  select(-Fires.in.organic.soils) #La saque porque son todos ceros
 head(data)
 ```
 
 ```{r}
-data = na.omit(data)
-sum(is.na(data))
+modelo_lineal = data %>% lm(formula = total_emission~., data = .)
+#Coeficientes
+lineal_coef = modelo_lineal %>% tidy(conf.int=TRUE)
+print(lineal_coef)
+
 ```
 
 ```{r}
-# Separar las variables predictoras y el objetivo
-X <- as.matrix(data[, -which(names(data) == "total_emission")])
-y <- data$total_emission
+lineal_coef %>% filter(!is.na(estimate)) %>% 
+  ggplot(., aes(term, estimate))+
+  geom_point(color = "forestgreen")+
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high), color = "forestgreen")+
+  geom_hline(yintercept = 0, lty = 2, color = "black") +
+  labs(title = "Coeficientes de la regresión lineal", x="", y="Estimación e Int. Confianza") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90))
+
 ```
 
-```{r Escalo la variable predictoras}
-X_scaled= scale(X, center = TRUE, scale = TRUE)
-sum(is.na(X_scaled))
+```{r}
+#Graficamos los p-valores de mayor a menor para evaluar la significatividad individual de los coeficientes estimados.
+
+lineal_coef %>% filter(!is.na(estimate)) %>% 
+  ggplot(., aes(reorder(term, -p.value), p.value, fill=p.value))+
+  geom_bar(stat = 'identity', aes(fill=p.value))+
+  geom_hline(yintercept = 0.05) +
+  labs(title = "P-valor de los regresores", x="", y="P-valor") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90)) + 
+  scale_fill_gradient2(high='firebrick', low = 'forestgreen', mid='yellow2',midpoint = 0.5 )
+```
+
+#Rescalado Variables
+
+```{r}
+# Reescalamos las variables numericas, menos la variable predictora
+data_scaled = data %>% mutate_at(vars(-total_emission), scale)
+head(data_scaled)
+```
+
+Dado que las variables están escaladas, los coeficientes no están en la
+misma escala que los datos originales. Esto puede dificultar la
+interpretación directa, pero sigue siendo útil para evaluar la
+importancia relativa de los predictores.
+
+```{r}
+# Modelo lineal
+# Ajustar modelo lineal con datos escalados de entrenamiento
+modelo_lineal_scaled <- lm(total_emission ~ ., data = data_scaled)
+
+# Extraer coeficientes con intervalos de confianza
+lineal_coef_scaled <- modelo_lineal_scaled %>% tidy(conf.int = TRUE)
+
+# Imprimir coeficientes
+print(lineal_coef_scaled)
+
+```
+
+```{r}
+summary(modelo_lineal_scaled)
+```
+
+```{r}
+lineal_coef_scaled %>% filter(!is.na(estimate)) %>% 
+  ggplot(., aes(term, estimate))+
+  geom_point(color = "forestgreen")+
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high), color = "forestgreen")+
+  geom_hline(yintercept = 0, lty = 2, color = "black") +
+  labs(title = "Coeficientes de la regresión lineal", x="", y="Estimación e Int. Confianza") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90))
+```
+
+```{r}
+#Graficamos los p-valores de mayor a menor para evaluar la significatividad individual de los coeficientes estimados.
+
+lineal_coef_scaled %>% filter(!is.na(estimate)) %>% 
+  ggplot(., aes(reorder(term, -p.value), p.value, fill=p.value))+
+  geom_bar(stat = 'identity', aes(fill=p.value))+
+  geom_hline(yintercept = 0.05) +
+  labs(title = "P-valor de los regresores", x="", y="P-valor") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle=90)) + 
+  scale_fill_gradient2(high='firebrick', low = 'forestgreen', mid='yellow2',midpoint = 0.5 )
+```
+
+```{r}
+modelos_lineales = list(lineal = modelo_lineal, lineal_escalado = modelo_lineal_scaled)
+map_dfr(.x = modelos_lineales, .f = glance, .id="modelo") %>% 
+  select(modelo, r.squared, adj.r.squared, p.value)
+```
+
+```{r}
+# Particion del dataset en train y test, #data_scaled es el data escalado
+# Suponiendo que `data` es el conjunto de datos ya escalado
+train_test <- data %>% initial_split(prop = 0.7)
+
+# Extraer los datos de entrenamiento y prueba
+train <- training(train_test) #70% train
+test <- testing(train_test) #30% para test
+
+# Visualizar los tamaños de los conjuntos
+cat("Tamaño del conjunto de entrenamiento:", nrow(train), "\n")
+cat("Tamaño del conjunto de prueba:", nrow(test), "\n")
+```
+
+```{r}
+# Elimina filas con NA en `train`
+train <- na.omit(train)
+```
+
+```{r}
+# Vector de total emision
+data_emision <- train$total_emission
+# Matriz con los regresores
+data_mtx = model.matrix(total_emission~., data = train)
+
+# Dimensiones del vector de emisión
+length(data_emision)
+
+# Dimensiones de la matriz de regresores
+dim(data_mtx)
+```
+
+```{r}
+# Modelo Lasso
+library(glmnet)
+lasso.mod = glmnet(x = data_mtx, # Matriz de regresores
+                   y = data_emision, #Vector de la variable a predecir
+                   alpha = 1,
+                   # Indicador del tipo de regularizacion
+                   nlambda = 100,
+                   standardize = F) 
+# aplicamos la función tidy para obtener los coeficientes del modelo                 
+lasso_coef = lasso.mod %>% tidy() %>% arrange(step)
+lasso_coef
+```
+
+```         
+```
+
+```{r}
+plot(lasso.mod, 'lambda')
+```
+
+```{r}
+plot(lasso.mod)
+```
+
+```{r}
+library(cowplot)
+
+# Gráfico de coeficientes en función del lambda con intercepto
+g1 = lasso_coef  %>% 
+  ggplot(., aes(log(lambda), estimate, group=term, color=term)) +
+  geom_line() +
+  theme_bw()  +
+  theme(legend.position = 'none') +
+  labs(title="Lasso con Intercepto",  y="Coeficientes")
+# Gráfico de coeficientes en función del lambda sin intercepto
+g2 = lasso_coef %>% 
+  filter(term!='(Intercept)') %>% 
+  ggplot(., aes(log(lambda), estimate, group=term, color=term)) +
+  geom_line() +
+  theme_bw()  +
+  theme(legend.position = 'none') +
+  labs(title="Lasso sin Intercepto", y="Coeficientes")
+# armamos la grilla con ambos gráficos
+plot_grid(g1,g2)
+```
+
+```{r}
+# Seleccionamos los terminos que sobreviven para valores altos de lambda
+terminos_sobrevientes = lasso_coef %>% 
+  filter(log(lambda)>17, term != "(Intercept)") %>%
+  select(term) %>% 
+  distinct() %>% 
+  pull()
+# Graficamos
+lasso_coef %>% filter(term %in% terminos_sobrevientes) %>% 
+  ggplot(., aes(log(lambda), estimate, group=term, color=term)) +
+  geom_line(size=1) +
+  geom_hline(yintercept = 0, linetype='dashed') +
+  theme_bw() +
+  labs(title="Lasso sin Intercepto", y="Coeficientes", subtitle= "\"Mejores\" variables") +
+  scale_color_brewer(palette = 'Set1')
+```
+
+```{r}
+# Modelo Lasso
+library(glmnet)
+lasso.mod_1 = glmnet(x = data_mtx, # Matriz de regresores
+                   y = data_emision, #Vector de la variable a predecir
+                   alpha = 1, # Indicador del tipo de regularizacion
+                   standardize = TRUE) # Que esta haciendo este parametro ?
+# aplicamos la función tidy para obtener los coeficientes del modelo                 
+lasso_coef_1 = lasso.mod_1 %>% tidy() %>% arrange(step)
+lasso_coef_1
+```
+
+```{r}
+cv_lasso_1 <- cv.glmnet(x = data_mtx, y = data_emision, alpha = 1)
+plot(cv_lasso_1)  # Gráfico de validación cruzada
+best_lambda <- cv_lasso_1$lambda.min  # Mejor lambda
+```
+
+```{r}
+plot(lasso.mod_1, 'lambda')
+```
+
+```{r}
+plot(lasso.mod_1)
+```
+
+```{r}
+# Gráfico de coeficientes en función del lambda con intercepto
+g1_1 = lasso_coef_1 %>% 
+  ggplot(., aes(log(lambda), estimate, group=term, color=term)) +
+  geom_line() +
+  theme_bw()  +
+  theme(legend.position = 'none') +
+  labs(title="Lasso con Intercepto",  y="Coeficientes")
+# Gráfico de coeficientes en función del lambda sin intercepto
+g2_1=lasso_coef_1 %>% 
+  filter(term!='(Intercept)') %>% 
+  ggplot(., aes(log(lambda), estimate, group=term, color=term)) +
+  geom_line() +
+  theme_bw()  +
+  theme(legend.position = 'none') +
+  labs(title="Lasso sin Intercepto", y ="Coeficientes")
+# armamos la grilla con ambos gráficos
+plot_grid(g1_1,g2_1)
+```
+
+```{r}
+# Cargar el paquete
+library(RColorBrewer)
+# Seleccionamos los terminos que sobreviven para valores altos de lambda
+terminos_sobrevientes = lasso_coef_1 %>% 
+  filter(log(lambda)>13.1, term != "(Intercept)") %>%
+  select(term) %>% 
+  distinct() %>% 
+  pull()
+# Graficamos
+lasso_coef_1 %>% 
+  filter(term %in% terminos_sobrevientes) %>% 
+  ggplot(., aes(log(lambda), estimate, group=term, color=term)) +
+  geom_line(size=1)  +
+  scale_colour_manual(values=rep(brewer.pal(8,"Set1"),times=2))+
+#   scale_color_brewer(palette = mycolors) +
+  geom_hline(yintercept = 0, linetype='dashed') +
+  theme_bw() +
+  labs(title="Lasso sin Intercepto", y="Coeficientes", subtitle= "\"Mejores\" variables")
+```
+
+# Modelos LARS
+
+```{r}
+# Definir y como la columna de la variable objetivo
+y <- data_scaled[["total_emission"]]
+
+# Definir X como una matriz de las variables predictoras
+X <- as.matrix(data_scaled[, -which(names(data_scaled) == "total_emission")])
+
+
 ```
 
 ```{r}
 # Dividir los datos en entrenamiento y prueba (70% entrenamiento, 30% prueba)
 set.seed(42)  # Para reproducibilidad
 trainIndex <- createDataPartition(y, p = 0.7, list = FALSE)
-X_train <- X_scaled[trainIndex, ]
+X_train <- X[trainIndex, ]
 y_train <- y[trainIndex]
-X_test <- X_scaled[-trainIndex, ]
+X_test <- X[-trainIndex, ]
 y_test <- y[-trainIndex]
 ```
 
 ```{r}
-# Usando cv.lars sin el argumento index
-library(lars)
+# Comprobar el tipo de X_train y y_train
+str(X_train)
+```
 
-cv.lars(X_train, y_train, K = 10, trace = FALSE, plot.it = TRUE, se = TRUE, type = "lar", mode = "step")
+```{r}
+str(y_train)
+```
+
+```{r}
+X_train <- as.matrix(X_train)
+y_train <- as.numeric(y_train)
 
 ```
 
-```{}
+```{r}
+dim(X_train)
+length(y_train)
+
+```
+
+```{r}
+# Usando cv.lars sin el argumento index
+cv.lars(X_train,y_train, K = 10, trace = FALSE, plot.it = TRUE, se = TRUE, type = "lar", mode = "step")
+
+```
+
+```         
 ```
 
 ```{r Modelo Lars}
